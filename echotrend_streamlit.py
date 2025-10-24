@@ -33,6 +33,93 @@ def make_json_compatible(obj):
         except:
             return str(obj)
 
+# ---- Custom Portfolio Tracking ---- #
+st.sidebar.markdown("## 📒 My Portfolio")
+
+if 'portfolio' not in st.session_state:
+    st.session_state['portfolio'] = []  # Each item: {'ticker': str, 'quantity': float, 'buy_price': float}
+
+with st.sidebar.form("portfolio_form", clear_on_submit=True):
+    pt_ticker = st.text_input("Stock Ticker")
+    pt_qty = st.number_input("Quantity", min_value=1, value=1)
+    pt_buy = st.number_input("Buy Price (₹)", min_value=0.0, value=100.0)
+    submitted = st.form_submit_button("Add Holding")
+    if submitted:
+        if pt_ticker and pt_qty > 0 and pt_buy > 0:
+            st.session_state['portfolio'].append({'ticker': pt_ticker.upper(), 'quantity': pt_qty, 'buy_price': pt_buy})
+            st.success(f"Added {pt_qty} of {pt_ticker.upper()} at ₹{pt_buy}")
+
+if st.sidebar.button("Clear Portfolio"):
+    st.session_state['portfolio'] = []
+    st.sidebar.info("Portfolio cleared.")
+
+if st.session_state['portfolio']:
+    st.sidebar.subheader("Current Holdings")
+    for idx, pos in enumerate(st.session_state['portfolio']):
+        st.sidebar.write(f"{idx+1}. {pos['quantity']} × {pos['ticker']} @ ₹{pos['buy_price']}")
+
+
+with st.tabs(["Portfolio"])[0]:
+    st.header("📊 Portfolio Performance")
+
+    # ---- Ensure data cache exists ----
+    if 'data_cache' not in st.session_state:
+        st.session_state['data_cache'] = {}
+
+    pf_data = []
+
+    # ---- Auto-load missing data for portfolio ----
+    if 'portfolio' in st.session_state and st.session_state['portfolio']:
+        for pos in st.session_state['portfolio']:
+            ticker = pos['ticker']
+            qty = float(pos['quantity'])
+            buy_price = float(pos['buy_price'])
+
+            # If not cached, fetch and cache (1mo of history)
+            if ticker not in st.session_state['data_cache']:
+                df = yf.download(ticker, period='1mo')
+                if not df.empty:
+                    st.session_state['data_cache'][ticker] = df
+                else:
+                    st.session_state['data_cache'][ticker] = pd.DataFrame()
+
+            df = st.session_state['data_cache'][ticker]
+            if not df.empty and 'Close' in df.columns:
+                last_close = float(df['Close'].iloc[-1])
+                cost = buy_price * qty
+                value = last_close * qty
+                pnl = value - cost
+                pnl_pct = (pnl / cost * 100) if cost != 0 else 0
+                pf_data.append({
+                    'Ticker': ticker,
+                    'Qty': qty,
+                    'Buy Price': buy_price,
+                    'Current Price': last_close,
+                    'Value (₹)': value,
+                    'Cost (₹)': cost,
+                    'PNL (₹)': pnl,
+                    'PNL (%)': pnl_pct
+                })
+        if pf_data:
+            pf_df = pd.DataFrame(pf_data)
+            st.dataframe(pf_df.style.format({
+                "Value (₹)": "{:.2f}", "Cost (₹)": "{:.2f}",
+                "PNL (₹)": "{:.2f}", "PNL (%)": "{:.2f}",
+                "Buy Price": "{:.2f}", "Current Price": "{:.2f}"
+            }))
+            total_cost = pf_df["Cost (₹)"].sum()
+            total_value = pf_df["Value (₹)"].sum()
+            total_pnl = pf_df["PNL (₹)"].sum()
+            total_return_pct = (total_pnl / total_cost * 100) if total_cost != 0 else 0
+            st.metric("Total Portfolio Value", f"₹{total_value:,.2f}", delta=f"₹{total_pnl:,.2f}")
+            st.metric("Total Invested", f"₹{total_cost:,.2f}")
+            st.metric("Total Portfolio Return (%)", f"{total_return_pct:.2f}%")
+        else:
+            st.info("No portfolio data to display yet (invalid tickers or missing price data).")
+    else:
+        st.info("No portfolio holdings. Please add holdings in the sidebar.")
+
+
 
 
 # -- Only font size control (no theme) --
@@ -102,6 +189,7 @@ top_bse = [
     "KOTAKBANK.BO", "ASIANPAINT.BO", "AXISBANK.BO", "MARUTI.BO", "SUNPHARMA.BO",
     "TITAN.BO", "NESTLEIND.BO", "BAJFINANCE.BO", "NTPC.BO", "POWERGRID.BO"
 ]
+
 
 # -- Personalized Stock Selection & Controls --
 exchange_choice = st.sidebar.selectbox("Choose Exchange", ["NSE", "BSE"])
@@ -603,8 +691,6 @@ st.markdown(
     </small>
     """, unsafe_allow_html=True
 )
-
-
 
 
 
